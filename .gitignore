@@ -5,3 +5,5 @@ checkpoints/
 __pycache__/
 .DS_Store
 train+public_test/
+runs/
+*.zip
