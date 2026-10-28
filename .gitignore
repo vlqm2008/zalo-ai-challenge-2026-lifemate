@@ -1,0 +1,7 @@
+data/
+.env
+result/
+checkpoints/
+__pycache__/
+.DS_Store
+train+public_test/
