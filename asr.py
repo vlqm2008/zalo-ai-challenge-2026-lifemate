@@ -55,6 +55,11 @@ def main():
     import torch
     from transformers import pipeline
 
+    # Colab mixes cuDNN libraries once vLLM swaps torch (CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH on Whisper's convs);
+    # the two input convs are tiny, so plain CUDA kernels cost nothing
+    torch.backends.cudnn.enabled = False
+    torch.backends.cuda.enable_cudnn_sdp(False)
+
     items = [json.loads(l) for l in open(ROOT / a.split / f"{a.split}.jsonl", encoding="utf-8")]
     if a.ids:
         keep = set(open(a.ids, encoding="utf-8").read().split())
