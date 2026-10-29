@@ -279,3 +279,21 @@ def test_build_sft_asr_transcripts_replace_every_user_turn(tmp_path):
     orig, aug = trajectory(sample, make_catalog(tmp_path), Config()), trajectory(sample, make_catalog(tmp_path), Config(), asr)
     assert "Tắt đèn bết giúp tôi" in aug[1]["content"] and "Nhà có những đèn nào" in aug[1]["content"]
     assert "Tắt đèn bếp giúp tôi." not in aug[1]["content"] and aug[2:] == orig[2:]   # same gold actions
+
+
+def test_synth_checks_reject_guessed_ids_and_misplaced_asks(tmp_path):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from synth_data import check
+    from lifemate.data import ASK_TOOL_NAME
+    tools = {t["name"]: t for t in resolve_installed_tools(SAMPLE, make_catalog(tmp_path))}
+    off = {"name": "smart_home.light_set", "arguments": {"device_id": "light_kitchen", "power": "off"}}
+    res, why = check(SAMPLE, "act", [off], tools, MockToolEnv("train", SAMPLE["id"]))
+    assert why is None and len(res) == 1                         # light_kitchen was returned in HISTORY
+    guessed = dict(off, arguments={"device_id": "light_garage", "power": "off"})
+    assert check(SAMPLE, "act", [guessed], tools, MockToolEnv("train", SAMPLE["id"]))[1] == "ungrounded id smart_home.light_set.device_id"
+    ask = {"name": ASK_TOOL_NAME, "arguments": {"tool_name": "smart_home.light_set", "params": ["device_id"]}}
+    assert "last call" in check(SAMPLE, "act", [ask], tools, MockToolEnv("train", SAMPLE["id"]))[1]
+    assert check(SAMPLE, "ask", [off, ask], tools, MockToolEnv("train", SAMPLE["id"]))[1] is None
+    bad_ask = {"name": ASK_TOOL_NAME, "arguments": {"tool_name": "smart_home.light_set", "params": ["device_id", "power"]}}
+    assert check(SAMPLE, "ask", [bad_ask], tools, MockToolEnv("train", SAMPLE["id"]))[1].startswith("ask needs")
+    assert check(SAMPLE, "oos", [off], tools, MockToolEnv("train", SAMPLE["id"]))[1] == "oos must have no calls"

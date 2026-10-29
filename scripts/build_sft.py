@@ -68,6 +68,8 @@ def main():
     ap.add_argument("--index-out", default="configs/few_shot_index.jsonl", help="kNN few-shot index: every trajectory (TOOLS stripped) + request text")
     ap.add_argument("--asr-aug", default=None, help="ASR cache JSON {audio path: text} of clips the ASR model never trained on: each "
                     "sample whose transcripts differ from the oracle text becomes an extra trajectory <id>_asr with the same gold")
+    ap.add_argument("--extra", default=None, help="jsonl of extra samples in train.jsonl format with a base_id (scripts/synth_data.py); "
+                    "with --ids-file only those whose base sample is in it, so synthetic data of dev bases never reaches training")
     ap.add_argument("--paraphrases", default=None, help="jsonl {id, k, text}: synthetic rewordings of the latest request; each one "
                     "becomes an extra trajectory <id>_p<k> with the same gold (synthetic data for development only, EXPERIMENTS 6)")
     args = ap.parse_args()
@@ -78,6 +80,8 @@ def main():
     if args.ids_file:
         keep = {l.strip() for l in Path(args.ids_file).read_text().splitlines() if l.strip()}
         samples = [s for s in samples if s["id"] in keep]
+    else:
+        keep = None
     rows = []
     for s in samples:
         msgs = trajectory(s, catalog, cfg)
@@ -95,6 +99,14 @@ def main():
             if msgs:
                 rows.append({"id": f'{s["id"]}_asr', "messages": msgs})
         print(f"{n_orig} original + {len(rows) - n_orig} ASR-transcript trajectories")
+    if args.extra:
+        n0 = len(rows)
+        for s in load_jsonl(args.extra):
+            if keep is None or s.get("base_id") in keep:
+                msgs = trajectory(s, catalog, cfg)
+                if msgs:
+                    rows.append({"id": s["id"], "messages": msgs})
+        print(f"{len(rows) - n0} extra trajectories from {args.extra}")
     n_aug = len(rows)
     if args.paraphrases:
         by_id = {s["id"]: s for s in samples}
