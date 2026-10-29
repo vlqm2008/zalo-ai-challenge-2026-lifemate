@@ -1,9 +1,11 @@
-"""Text-only LifeMate agent (step 2): transcript -> Qwen tool-calling loop on zaic_tools.
+"""LifeMate agent: transcript -> Qwen tool-calling loop on zaic_tools.
 
-    python agent.py --ids splits/dev_seen.txt --out runs/dev_seen.jsonl [--limit 20]
+    python agent.py --ids splits/dev_seen.txt --out runs/dev_seen.jsonl [--limit 20]       # train, gold transcripts
+    python agent.py --ids splits/dev_seen.txt --asr runs/asr_dev_seen.json --out ...       # train, ASR transcripts
+    python agent.py --split public_test --asr runs/asr_public_test.json --out runs/public_test.jsonl
     python score.py runs/dev_seen.jsonl
 
-Train only for now: user turns come from audio_text (ASR replaces it in step 3).
+User turns come from audio_text (train) or from asr.py's transcripts (--asr).
 Backend: MLX on a Mac (local tries), vLLM elsewhere (Colab, Docker).
 Writes <out> (submission lines) and <out>.trace.jsonl (model turns and tool results, for error analysis).
 """
@@ -160,24 +162,31 @@ class VLLMModel:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ids", required=True)
+    ap.add_argument("--split", default="train")
+    ap.add_argument("--ids", help="file with one sample id per line (default: the whole split)")
+    ap.add_argument("--asr", help="asr.py output; its transcripts replace audio_text (public_test has none)")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--limit", type=int)
     ap.add_argument("--model", default=MODEL)
     a = ap.parse_args()
 
-    sys.path.insert(0, str(ROOT / "train"))
+    sys.path.insert(0, str(ROOT / a.split))  # each split ships its own zaic_tools (its own apps)
     from zaic_tools import ToolEnv
 
-    items = {d["id"]: d for d in map(json.loads, open(ROOT / "train/train.jsonl", encoding="utf-8"))}
-    catalog = json.load(open(ROOT / "train/train_tools_catalog.json", encoding="utf-8"))
-    ids = [l.strip() for l in open(a.ids, encoding="utf-8") if l.strip()][: a.limit]
+    items = {d["id"]: d for d in map(json.loads, open(ROOT / a.split / f"{a.split}.jsonl", encoding="utf-8"))}
+    catalog = json.load(open(ROOT / a.split / f"{a.split}_tools_catalog.json", encoding="utf-8"))
+    ids = ([l.strip() for l in open(a.ids, encoding="utf-8") if l.strip()] if a.ids else list(items))[: a.limit]
+    if a.asr:
+        texts = json.load(open(a.asr, encoding="utf-8"))
+        for sid in ids:
+            for turn in [items[sid], *(h for h in items[sid]["history"] if h["role"] == "user")]:
+                turn["audio_text"] = texts[turn["audio"]]
     llm = MLXModel(a.model) if sys.platform == "darwin" else VLLMModel(a.model)
     a.out.parent.mkdir(parents=True, exist_ok=True)
     with open(a.out, "w", encoding="utf-8") as fo, open(a.out.with_suffix(".trace.jsonl"), "w", encoding="utf-8") as ft:
         for i, sid in enumerate(ids, 1):
             t = time.time()
-            env = ToolEnv("train", sid, root=ROOT)
+            env = ToolEnv(a.split, sid, root=ROOT)
             trace, max_prompt = run_agent(items[sid], env, catalog, llm)
             calls = env.get_tool_calls()
             fo.write(json.dumps({"id": sid, "tool_calls": calls, "state_hash": env.get_state_hash()}, ensure_ascii=False) + "\n")
