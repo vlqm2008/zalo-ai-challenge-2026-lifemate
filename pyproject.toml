@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lifemate"
+version = "0.1.0"
+description = "LifeMate agent - Zalo AI Challenge 2026"
+requires-python = ">=3.10"
+dependencies = ["soundfile>=0.12", "numpy", "huggingface_hub"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

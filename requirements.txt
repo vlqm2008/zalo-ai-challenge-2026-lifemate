@@ -1,0 +1,14 @@
+# Inference (vllm image already ships torch + vllm + transformers; pins here are the extras)
+soundfile>=0.12
+librosa>=0.10
+numpy
+huggingface_hub
+faster-whisper>=1.0
+ctranslate2>=4.4
+# Training (optional, not needed in the inference image)
+# trl>=0.20
+# peft>=0.15
+# datasets
+# Dev
+# pytest
+# jiwer

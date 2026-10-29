@@ -7,3 +7,6 @@ __pycache__/
 train+public_test/
 runs/
 *.zip
+out/
+models/
+*.egg-info/
