@@ -190,6 +190,7 @@ def best_id(value: str, candidates: list[tuple[str, dict]]) -> tuple[Optional[st
 # --------------------------------------------------------------------------- #
 
 _ISO_NO_TZ = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$")
+_CLOCK = re.compile(r"^(?:\d{4}-\d{2}-\d{2}T)?(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$")
 # values that must never be "snapped" to a near-identical known string: timestamps, dates, times, numbers,
 # phone numbers, codes (a 1-digit difference is a different value, not a spelling variant)
 _NO_SNAP = re.compile(r"^[\d\s:+\-./TZ,()]+$|^\d{4}-\d{2}-\d{2}|^\d{1,2}:\d{2}|^[+\d][\d\s.-]{6,}$|@|^https?://", re.IGNORECASE)
@@ -240,6 +241,9 @@ def coerce_value(schema: dict, value: Any, tz_offset: Optional[str]) -> Any:
                 value = str(value)
             if isinstance(value, str):
                 value = value.strip()
+                m = _CLOCK.match(value) if schema.get("format") == "time" else None
+                if m:   # gold writes "19:00"; the model sometimes copies the datetime hint ("19:00:00+07:00")
+                    return f"{int(m.group(1)):02d}:{m.group(2)}"
                 if tz_offset and _ISO_NO_TZ.match(value):
                     if len(value) == 16:
                         value += ":00"

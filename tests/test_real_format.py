@@ -258,3 +258,24 @@ def test_few_shot_dropped_when_prompt_too_long(tmp_path):
     log = agent.run(SAMPLE, MockToolEnv("train", SAMPLE["id"]), tmp_path, oracle=True)
     assert [m["role"] for m in llm.calls[0]] == ["system", "user"] and "ví dụ A" not in json.dumps(llm.calls[0], ensure_ascii=False)
     assert any("few-shot dropped" in n for n in log["notes"])
+
+
+def test_clock_time_params_drop_date_and_offset():
+    from lifemate.grounding import coerce_value
+    clock = {"type": "string", "format": "time"}
+    # measured: home_automation.create_rule got "19:00:00+07:00" three times -> invalid -> sample stopped
+    assert coerce_value(clock, "19:00:00+07:00", "+07:00") == "19:00"
+    assert coerce_value(clock, "2026-09-25T7:05:00+07:00", "+07:00") == "07:05"
+    assert coerce_value(clock, "22:00", "+07:00") == "22:00"
+    assert coerce_value({"type": "string"}, "2026-09-25T19:00", "+07:00") == "2026-09-25T19:00:00+07:00"   # date-time untouched
+
+
+def test_build_sft_asr_transcripts_replace_every_user_turn(tmp_path):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from build_sft import trajectory
+    sample = dict(SAMPLE, label={"tool_calls": [{"name": "smart_home.light_set", "arguments": {"device_id": "light_kitchen", "power": "off"}}],
+                                 "tool_results": [{"ok": True}]})
+    asr = {"audio/train_9999/train_9999_u1.wav": "Nhà có những đèn nào", "audio/train_9999/train_9999.wav": "Tắt đèn bết giúp tôi"}
+    orig, aug = trajectory(sample, make_catalog(tmp_path), Config()), trajectory(sample, make_catalog(tmp_path), Config(), asr)
+    assert "Tắt đèn bết giúp tôi" in aug[1]["content"] and "Nhà có những đèn nào" in aug[1]["content"]
+    assert "Tắt đèn bếp giúp tôi." not in aug[1]["content"] and aug[2:] == orig[2:]   # same gold actions

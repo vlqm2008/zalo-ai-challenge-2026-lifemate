@@ -26,13 +26,13 @@ from lifemate.prompts import FINISH, SYSTEM_PROMPT, build_user_message, render_h
 from lifemate.runtime import locate_split  # noqa: E402
 
 
-def trajectory(sample: dict, catalog: dict, cfg: Config) -> list[dict] | None:
+def trajectory(sample: dict, catalog: dict, cfg: Config, asr: dict | None = None) -> list[dict] | None:
     label = sample.get("label")
     if not label:
         return None
     context = sample.get("context") or {}
     targets = transcript_targets(sample)
-    texts = [t if t is not None else "" for _, t in targets]
+    texts = [(asr[p] if asr and p in asr else t) or "" for p, t in targets]   # asr: {audio path: transcript} replaces the oracle text
     transcript = texts[-1]
     if not transcript:
         return None
@@ -66,6 +66,8 @@ def main():
     ap.add_argument("--few-shot-strategy", default="diverse", choices=["diverse", "shortest"])
     ap.add_argument("--few-shot-keep-tools", action="store_true", help="keep the TOOLS block in few-shot user turns")
     ap.add_argument("--index-out", default="configs/few_shot_index.jsonl", help="kNN few-shot index: every trajectory (TOOLS stripped) + request text")
+    ap.add_argument("--asr-aug", default=None, help="ASR cache JSON {audio path: text} of clips the ASR model never trained on: each "
+                    "sample whose transcripts differ from the oracle text becomes an extra trajectory <id>_asr with the same gold")
     ap.add_argument("--paraphrases", default=None, help="jsonl {id, k, text}: synthetic rewordings of the latest request; each one "
                     "becomes an extra trajectory <id>_p<k> with the same gold (synthetic data for development only, EXPERIMENTS 6)")
     args = ap.parse_args()
@@ -82,6 +84,18 @@ def main():
         if msgs:
             rows.append({"id": s["id"], "messages": msgs})
     n_orig = len(rows)
+    if args.asr_aug:
+        asr = json.loads(Path(args.asr_aug).read_text(encoding="utf-8"))
+        for s in samples:
+            targets = transcript_targets(s)
+            # every user turn must have a transcript (no oracle/ASR mix), and an identical copy teaches nothing
+            if not all(p in asr for p, _ in targets) or all(asr[p] == t for p, t in targets):
+                continue
+            msgs = trajectory(s, catalog, cfg, asr)
+            if msgs:
+                rows.append({"id": f'{s["id"]}_asr', "messages": msgs})
+        print(f"{n_orig} original + {len(rows) - n_orig} ASR-transcript trajectories")
+    n_aug = len(rows)
     if args.paraphrases:
         by_id = {s["id"]: s for s in samples}
         for line in Path(args.paraphrases).read_text(encoding="utf-8").splitlines():
@@ -96,7 +110,7 @@ def main():
             msgs = trajectory(clone, catalog, cfg)
             if msgs:
                 rows.append({"id": f'{pr["id"]}_p{pr.get("k", 0)}', "messages": msgs})
-        print(f"{n_orig} original + {len(rows) - n_orig} paraphrased trajectories")
+        print(f"{n_aug} original + {len(rows) - n_aug} paraphrased trajectories")
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")   # trailing newline: files are concatenated
     print(f"wrote {len(rows)} trajectories to {args.out}")
@@ -104,6 +118,7 @@ def main():
     # "diverse" = the shortest trajectory of each behaviour: oos (finish only), ask after a read, read->write,
     # conditional read -> write, multi-task (>=3 calls) - in that order, up to K.
     by_id = {s["id"]: s for s in samples}
+    rows = rows[:n_orig]   # few-shot and kNN index: original trajectories only (augmented ids are not in by_id)
 
     def behaviour(r):
         calls = by_id[r["id"]]["label"]["tool_calls"]
