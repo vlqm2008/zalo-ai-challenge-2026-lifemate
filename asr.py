@@ -12,6 +12,7 @@ import re
 import time
 import unicodedata
 import wave
+from pathlib import Path
 
 import numpy as np
 
@@ -48,7 +49,7 @@ def main():
     ap.add_argument("--split", default="train")
     ap.add_argument("--ids", help="file with one sample id per line (default: the whole split)")
     ap.add_argument("--model", default="vinai/PhoWhisper-large")
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--batch", type=int, default=16)
     a = ap.parse_args()
 
@@ -72,6 +73,7 @@ def main():
     clips = ({"raw": load_wav(ROOT / a.split / t["audio"]), "sampling_rate": 16000} for t in turns)
     outs = asr(clips, batch_size=a.batch, generate_kwargs={**lang, "num_beams": 1, "do_sample": False})  # greedy: deterministic
     texts = {t["audio"]: o["text"].strip() for t, o in zip(turns, outs)}
+    a.out.parent.mkdir(parents=True, exist_ok=True)
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(texts, f, ensure_ascii=False, indent=0)
     print(f"{len(texts)} clips in {time.time() - t0:.0f}s -> {a.out}")
