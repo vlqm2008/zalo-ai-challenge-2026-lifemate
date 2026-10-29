@@ -27,6 +27,16 @@ def set_all_seeds(seed: int) -> None:
         pass
 
 
+def json_output_kwargs(schema: dict) -> dict:
+    """vLLM SamplingParams kwargs that force JSON matching `schema`."""
+    try:  # vLLM >= 0.10
+        from vllm.sampling_params import StructuredOutputsParams
+        return {"structured_outputs": StructuredOutputsParams(json=schema)}
+    except ImportError:  # older vLLM
+        from vllm.sampling_params import GuidedDecodingParams
+        return {"guided_decoding": GuidedDecodingParams(json=schema)}
+
+
 class BaseLLM:
     def chat(self, messages: list[dict], json_schema: Optional[dict] = None) -> str:
         raise NotImplementedError
@@ -75,12 +85,7 @@ class VLLMBackend(BaseLLM):
 
         kwargs = dict(temperature=0.0, max_tokens=self.cfg.max_tokens, seed=self.cfg.seed)
         if schema is not None and self.cfg.use_guided_json:
-            try:  # vLLM >= 0.10
-                from vllm.sampling_params import StructuredOutputsParams
-                kwargs["structured_outputs"] = StructuredOutputsParams(json=schema)
-            except ImportError:  # older vLLM
-                from vllm.sampling_params import GuidedDecodingParams
-                kwargs["guided_decoding"] = GuidedDecodingParams(json=schema)
+            kwargs.update(json_output_kwargs(schema))
         return SamplingParams(**kwargs)
 
     def chat(self, messages, json_schema=None):
