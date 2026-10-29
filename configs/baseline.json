@@ -9,7 +9,7 @@
   "asr_model": "models/phowhisper_large_ft",
   "asr_backend": "hf",
   "asr_num_beams": 1,
-  "asr_prompt": "domain",
+  "asr_prompt": null,
   "max_steps": 8,
   "max_repairs": 2,
   "sample_budget_s": 22.0,
