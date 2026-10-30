@@ -53,7 +53,7 @@ def _key(t: str) -> bool:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
-    ap.add_argument("--split", required=True)
+    ap.add_argument("--split", default=None, help="split name if --data holds several (train/public_test/...)")
     ap.add_argument("--backend", default="ct2", choices=["ct2", "hf"])
     ap.add_argument("--model", default="vinai/PhoWhisper-medium")
     ap.add_argument("--compute-type", default="float16")

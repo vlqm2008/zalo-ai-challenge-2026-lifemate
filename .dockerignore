@@ -1,0 +1,16 @@
+.git
+.DS_Store
+.pytest_cache
+**/__pycache__
+*.egg-info
+# competition data is never shipped in the image; weights come from the "weights" build context
+train+public_test
+data
+runs
+out
+result
+models
+checkpoints
+*.zip
+*.tar
+*.tar.gz
