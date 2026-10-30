@@ -109,7 +109,9 @@ def main():
         print(f"{len(rows) - n0} extra trajectories from {args.extra}")
     n_aug = len(rows)
     if args.paraphrases:
-        by_id = {s["id"]: s for s in samples}
+        from paraphrase_data import drift
+
+        by_id, n_drift = {s["id"]: s for s in samples}, 0
         for line in Path(args.paraphrases).read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
@@ -117,12 +119,15 @@ def main():
             base = by_id.get(pr["id"])
             if not base or not pr.get("text"):
                 continue
+            if drift(base, pr["text"]):   # files written before paraphrase_data.py checked this
+                n_drift += 1
+                continue
             clone = dict(base)
             clone["audio_text"] = {**base["audio_text"], "text": pr["text"]} if isinstance(base.get("audio_text"), dict) else pr["text"]
             msgs = trajectory(clone, catalog, cfg)
             if msgs:
                 rows.append({"id": f'{pr["id"]}_p{pr.get("k", 0)}', "messages": msgs})
-        print(f"{n_aug} original + {len(rows) - n_aug} paraphrased trajectories")
+        print(f"{n_aug} original + {len(rows) - n_aug} paraphrased trajectories ({n_drift} dropped: numbers, times or gold words differ)")
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")   # trailing newline: files are concatenated
     print(f"wrote {len(rows)} trajectories to {args.out}")

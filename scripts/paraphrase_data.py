@@ -5,7 +5,9 @@ Development only: an open model writes them (the rules allow LLM-generated train
 inference) and nothing here reads public_test. The gold calls stay those of the base sample, so a rewording is
 kept only if it still means the same:
 1. every string argument of the gold calls that the original request says word for word is said word for word
-   again (message texts, names, search words: the gold keeps the original wording);
+   again (message texts, names, search words: the gold keeps the original wording), it has the same numbers and
+   times (as build_hints normalizes them), and it says no gold word the original does not (drift(), which
+   build_sft.py also applies to files written before it);
 2. the same model, without the gold, solves it through the agent's rules on a fresh env and either reproduces
    the gold (as synth_data.py's cross-check) or makes exactly the calls it makes on the original request (the
    meaning survived even where the model gets the original wrong).
@@ -29,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lifemate.config import Config  # noqa: E402
 from lifemate.data import load_catalog, load_jsonl, resolve_installed_tools, transcript_targets  # noqa: E402
-from lifemate.normalize_vi import nfc  # noqa: E402
+from lifemate.normalize_vi import build_hints, nfc  # noqa: E402
 from lifemate.prompts import action_schema, render_context, render_history  # noqa: E402
 from lifemate.runtime import import_toolenv, locate_split  # noqa: E402
 from lifemate.scorer import fuzzy_lookup_from_catalog, score_sample  # noqa: E402
@@ -54,20 +56,47 @@ def said(phrase: str, text: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(nfc(phrase).lower())}(?!\w)", nfc(text).lower()) is not None
 
 
-def keep_phrases(request: str, calls: list) -> list[str]:
-    """String argument values of the gold calls that the request says word for word."""
+def gold_strings(calls: list) -> list[str]:
+    """Every string argument value of the calls, nested ones too."""
     out = []
 
     def walk(v):
         if isinstance(v, str):
-            if len(v) > 1 and v not in out and said(v, request):
-                out.append(v)
+            out.append(v)
         elif isinstance(v, (list, dict)):
             for x in (v.values() if isinstance(v, dict) else v):
                 walk(x)
     for c in calls:
         walk(c["arguments"])
     return out
+
+
+def keep_phrases(request: str, calls: list) -> list[str]:
+    """String argument values of the gold calls that the request says word for word."""
+    return list(dict.fromkeys(v for v in gold_strings(calls) if len(v) > 1 and said(v, request)))
+
+
+def hint_values(text: str, now: str) -> set[str]:
+    """The numbers and times build_hints reads in text, normalized ("một triệu hai" and "1.200.000 đồng" -> 1200000)."""
+    out = set()
+    for h in build_hints(text, now):
+        m = re.search(r'(?:=|→)\s*"?([^"(]+?)"?\s*(?:\(|$)', h)
+        if m:
+            out.add(m.group(1).strip().lstrip("0"))
+    return out - {"1"}   # "một chiếc xe": an article, not a value
+
+
+def drift(base: dict, text: str) -> str | None:
+    """Why a rewording of base's latest request says more or less than the original, or None. The teacher sees
+    the gold, so it tends to write in what the assistant has to look up (the bill amount, the place of "hôm đi ấy")."""
+    orig, now = transcript_targets(base)[-1][1] or "", base["context"].get("current_time") or ""
+    vo, vp = hint_values(orig, now), hint_values(text, now)
+    if vp != vo:
+        return "lost a number or time" if vo - vp else "added a number or time"   # a lost hour can leave its date behind
+    # words only: numbers were compared above, and a number read out as words is never said word for word
+    if any(said(w, text) and not said(w, orig) for w in gold_strings(base["label"]["tool_calls"]) if len(w) > 2 and re.search(r"[^\W\d_]", w)):
+        return "says a gold value the user did not"
+    return None
 
 
 def user_message(s: dict) -> str:
@@ -96,6 +125,8 @@ def candidates(s: dict, text: str, n: int) -> tuple[list[str], list[str]]:
             why.append("empty or a copy")
         elif not all(said(p, t) for p in keep):
             why.append("lost a word-for-word phrase")
+        elif d := drift(s, t):
+            why.append(d)
         else:
             kept.append(t)
         seen.add(norm)

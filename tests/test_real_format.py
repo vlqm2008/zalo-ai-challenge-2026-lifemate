@@ -308,3 +308,18 @@ def test_paraphrases_keep_the_words_the_gold_copies():
     out = json.dumps({"requests": ["Con nhắn Minh giùm: nhớ mang tài liệu.", "Nhắn Minh nhớ đem tài liệu nha",
                                    "nhắn cho minh là nhớ mang tài liệu nha con!"]})
     assert candidates(s, out, 3) == (["Con nhắn Minh giùm: nhớ mang tài liệu."], ["lost a word-for-word phrase", "empty or a copy"])
+
+
+def test_paraphrases_must_not_say_more_or_less_than_the_original():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from paraphrase_data import drift
+    pay = {"name": "banking.transfer", "arguments": {"amount": 218000, "note": "tiền mạng"}}
+    base = dict(SAMPLE, audio_text="Chuyển tiền mạng tháng này cho chú Hùng nha", label={"tool_calls": [pay]})
+    assert drift(base, "Chuyển 218 nghìn cho chú Hùng nha") == "added a number or time"   # the amount comes from a lookup
+    assert drift(base, "Gửi chú Hùng một khoản tiền mạng tháng này nhé") is None           # "một" is an article
+    alarm = dict(SAMPLE, audio_text="Đặt báo thức 6 rưỡi sáng mai", label={"tool_calls": []})
+    assert drift(alarm, "Đặt giúp báo thức lúc 6 giờ 30 phút sáng mai nhé") is None        # same time in other words
+    assert drift(alarm, "Đặt báo thức sáng mai nha") == "lost a number or time"
+    rain = dict(SAMPLE, audio_text="Hôm đi ấy xem giúp em có mưa không",
+                label={"tool_calls": [{"name": "weather.get_forecast", "arguments": {"location": "Ninh Bình"}}]})
+    assert drift(rain, "Hôm đi Ninh Bình xem giúp em có mưa không") == "says a gold value the user did not"
