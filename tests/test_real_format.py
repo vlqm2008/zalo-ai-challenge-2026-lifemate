@@ -297,3 +297,14 @@ def test_synth_checks_reject_guessed_ids_and_misplaced_asks(tmp_path):
     bad_ask = {"name": ASK_TOOL_NAME, "arguments": {"tool_name": "smart_home.light_set", "params": ["device_id", "power"]}}
     assert check(SAMPLE, "ask", [bad_ask], tools, MockToolEnv("train", SAMPLE["id"]))[1].startswith("ask needs")
     assert check(SAMPLE, "oos", [off], tools, MockToolEnv("train", SAMPLE["id"]))[1] == "oos must have no calls"
+
+
+def test_paraphrases_keep_the_words_the_gold_copies():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from paraphrase_data import candidates, keep_phrases
+    calls = [{"name": "sms.send", "arguments": {"contact_id": "c_01", "body": "nhớ mang tài liệu", "urgent": "on"}}]
+    s = dict(SAMPLE, audio_text="Nhắn cho Minh là nhớ mang tài liệu nha con", label={"tool_calls": calls})
+    assert keep_phrases(s["audio_text"], calls) == ["nhớ mang tài liệu"]   # "on" only inside "con", the ID never said
+    out = json.dumps({"requests": ["Con nhắn Minh giùm: nhớ mang tài liệu.", "Nhắn Minh nhớ đem tài liệu nha",
+                                   "nhắn cho minh là nhớ mang tài liệu nha con!"]})
+    assert candidates(s, out, 3) == (["Con nhắn Minh giùm: nhớ mang tài liệu."], ["lost a word-for-word phrase", "empty or a copy"])
